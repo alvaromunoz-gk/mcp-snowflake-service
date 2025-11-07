@@ -66,43 +66,84 @@ class SnowflakeConnection:
             logger.error(f"Connection error: {str(e)}")
             raise
 
-    def execute_query(self, query: str) -> list[dict[str, Any]]:
+    def execute_read_query(self, query: str) -> list[dict[str, Any]]:
         """
-        Execute SQL query and return results
+        Execute a read-only SQL query and return results
         
         Args:
-            query (str): SQL query statement
+            query (str): SQL query statement (SELECT, SHOW, DESCRIBE, etc.)
             
         Returns:
             list[dict[str, Any]]: List of query results
+            
+        Raises:
+            ValueError: If query contains write operations
         """
+        # Validate that query is read-only
+        write_keywords = ['INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'MERGE', 'COPY']
+        query_upper = query.strip().upper()
+        if any(query_upper.startswith(keyword) for keyword in write_keywords):
+            raise ValueError(f"Read query cannot contain write operations. Use execute_write_query for: {query[:50]}...")
+        
         start_time = time.time()
-        logger.info(f"Executing query: {query[:200]}...")  # Log only first 200 characters
+        logger.info(f"Executing read query: {query[:200]}...")  # Log only first 200 characters
         
         try:
             conn = self.ensure_connection()
             with conn.cursor() as cursor:
-                # Use transaction for write operations
-                if any(query.strip().upper().startswith(word) for word in ['INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER']):
-                    cursor.execute("BEGIN")
-                    try:
-                        cursor.execute(query)
-                        conn.commit()
-                        logger.info(f"Write query executed in {time.time() - start_time:.2f}s")
-                        return [{"affected_rows": cursor.rowcount}]
-                    except Exception as e:
-                        conn.rollback()
-                        raise
-                else:
-                    # Read operations
+                cursor.execute(query)
+                if cursor.description:
+                    columns = [col[0] for col in cursor.description]
+                    rows = cursor.fetchall()
+                    results = [dict(zip(columns, row)) for row in rows]
+                    logger.info(f"Read query returned {len(results)} rows in {time.time() - start_time:.2f}s")
+                    return results
+                return []
+                
+        except snowflake.connector.errors.ProgrammingError as e:
+            logger.error(f"SQL Error: {str(e)}")
+            logger.error(f"Error Code: {getattr(e, 'errno', 'unknown')}")
+            raise
+        except Exception as e:
+            logger.error(f"Query error: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            raise
+
+    def execute_write_query(self, query: str) -> dict[str, Any]:
+        """
+        Execute a write SQL query (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.)
+        
+        Args:
+            query (str): SQL query statement (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.)
+            
+        Returns:
+            dict[str, Any]: Result containing affected_rows
+            
+        Raises:
+            ValueError: If query is not a write operation
+        """
+        # Validate that query is a write operation
+        write_keywords = ['INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'MERGE', 'COPY']
+        query_upper = query.strip().upper()
+        if not any(query_upper.startswith(keyword) for keyword in write_keywords):
+            raise ValueError(f"Write query must start with a write operation keyword. Use execute_read_query for: {query[:50]}...")
+        
+        start_time = time.time()
+        logger.info(f"Executing write query: {query[:200]}...")  # Log only first 200 characters
+        
+        try:
+            conn = self.ensure_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("BEGIN")
+                try:
                     cursor.execute(query)
-                    if cursor.description:
-                        columns = [col[0] for col in cursor.description]
-                        rows = cursor.fetchall()
-                        results = [dict(zip(columns, row)) for row in rows]
-                        logger.info(f"Read query returned {len(results)} rows in {time.time() - start_time:.2f}s")
-                        return results
-                    return []
+                    conn.commit()
+                    affected_rows = cursor.rowcount
+                    logger.info(f"Write query executed in {time.time() - start_time:.2f}s, affected {affected_rows} rows")
+                    return {"affected_rows": affected_rows, "status": "success"}
+                except Exception as e:
+                    conn.rollback()
+                    raise
                 
         except snowflake.connector.errors.ProgrammingError as e:
             logger.error(f"SQL Error: {str(e)}")
@@ -142,14 +183,28 @@ class SnowflakeServer(Server):
             """
             return [
                 Tool(
-                    name="execute_query",
-                    description="Execute a SQL query on Snowflake",
+                    name="execute_read_query",
+                    description="Execute a read-only SQL query on Snowflake (SELECT, SHOW, DESCRIBE, etc.). Returns query results.",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "query": {
                                 "type": "string",
-                                "description": "SQL query to execute"
+                                "description": "Read-only SQL query to execute (SELECT, SHOW, DESCRIBE, etc.)"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="execute_write_query",
+                    description="Execute a write SQL query on Snowflake (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.). Returns affected rows count.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Write SQL query to execute (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.)"
                             }
                         },
                         "required": ["query"]
@@ -169,23 +224,47 @@ class SnowflakeServer(Server):
             Returns:
                 list[TextContent]: Execution results
             """
-            if name == "execute_query":
+            if name == "execute_read_query":
                 start_time = time.time()
                 try:
-                    result = self.db.execute_query(arguments["query"])
+                    result = self.db.execute_read_query(arguments["query"])
                     execution_time = time.time() - start_time
                     
                     return [TextContent(
                         type="text",
-                        text=f"Results (execution time: {execution_time:.2f}s):\n{result}"
+                        text=f"Read query results (execution time: {execution_time:.2f}s):\n{json.dumps(result, indent=2, default=str)}"
                     )]
                 except Exception as e:
-                    error_message = f"Error executing query: {str(e)}"
+                    error_message = f"Error executing read query: {str(e)}"
                     logger.error(error_message)
                     return [TextContent(
                         type="text",
                         text=error_message
                     )]
+            elif name == "execute_write_query":
+                start_time = time.time()
+                try:
+                    result = self.db.execute_write_query(arguments["query"])
+                    execution_time = time.time() - start_time
+                    
+                    return [TextContent(
+                        type="text",
+                        text=f"Write query completed (execution time: {execution_time:.2f}s):\n{json.dumps(result, indent=2)}"
+                    )]
+                except Exception as e:
+                    error_message = f"Error executing write query: {str(e)}"
+                    logger.error(error_message)
+                    return [TextContent(
+                        type="text",
+                        text=error_message
+                    )]
+            else:
+                error_message = f"Unknown tool: {name}"
+                logger.error(error_message)
+                return [TextContent(
+                    type="text",
+                    text=error_message
+                )]
 
     def __del__(self):
         """
