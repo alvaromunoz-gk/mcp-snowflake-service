@@ -8,8 +8,7 @@ import snowflake.connector
 from dotenv import load_dotenv
 import mcp.server.stdio
 from mcp.server import Server
-from mcp.types import Tool, ServerResult, TextContent
-from contextlib import closing
+from mcp.types import Tool, TextContent
 from typing import Optional, Any
 
 # Configure logging

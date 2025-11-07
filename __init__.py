@@ -1,3 +1,3 @@
-from .server import main
+from server import main
 
 __all__ = ["main"]

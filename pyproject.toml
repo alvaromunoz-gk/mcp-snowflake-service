@@ -17,9 +17,9 @@ requires = ["hatchling"]  # Build tool requirement
 build-backend = "hatchling.build"  # Build backend
 
 # Build configuration
+# Note: Hatchling will auto-detect root-level modules
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_server_snowflake"]  # Package location
 
 # Entry points
 [project.scripts]
-mcp-server-snowflake = "mcp_server_snowflake.server:main"  # Command line entry
+mcp-server-snowflake = "server:main"  # Command line entry
