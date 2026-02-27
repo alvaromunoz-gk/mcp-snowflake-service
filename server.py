@@ -18,7 +18,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger('snowflake_server')
 
-load_dotenv()
+# Load .env from script directory so it works when MCP is started from another cwd (e.g. by Cursor)
+_load_env_from = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+load_dotenv(_load_env_from)
+if os.path.exists(_load_env_from):
+    logger.info(f"Loaded env from {_load_env_from}")
 
 class SnowflakeConnection:
     """

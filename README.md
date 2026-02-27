@@ -25,13 +25,20 @@ pip install -r requirements.txt
 }
 ```
 
-2. **Set up Snowflake credentials** - Create a `.env` file:
+2. **Set up Snowflake credentials** - Create a `.env` file in the project root:
 ```env
 SNOWFLAKE_USER=your_username
 SNOWFLAKE_PASSWORD=your_password
-SNOWFLAKE_ACCOUNT=your_account.region
+SNOWFLAKE_ACCOUNT=your_account
 SNOWFLAKE_DATABASE=your_database
 SNOWFLAKE_WAREHOUSE=your_warehouse
+```
+
+   **Account identifier:** Use the exact value from Snowflake (e.g. from the Snowsight URL or Admin > Accounts). Common formats: `orgname-accountname` or `accountlocator.region` (e.g. `xy12345.us-east-1`).
+
+3. **Verify connection** (optional):
+```bash
+python test_connection.py
 ```
 
 ## Usage
@@ -53,6 +60,20 @@ Use `execute_write_query` for data modifications:
 - `TRUNCATE`, `MERGE`, `COPY`
 
 **Example:** "Create a new database called test_db" or "Insert a new record into my_table"
+
+### Troubleshooting
+
+**Error: `250003 (08001): 404 Not Found` on login**
+
+The Snowflake login URL is wrong, usually due to an incorrect `SNOWFLAKE_ACCOUNT` value.
+
+1. Run `python test_connection.py` from the project root to see the URL being used and get hints.
+2. In Snowflake (Snowsight), open the account selector or copy the URL when logged in. Use that account identifier in `.env`.
+3. Try without the region suffix (e.g. `AMPXXYB-BXB87131` instead of `AMPXXYB-BXB87131.us-east-1`) or use the org-account format shown in Admin > Accounts.
+
+**MCP doesn’t see your `.env`**
+
+If the server is started by Cursor/Claude from a different working directory, `.env` may not be found. Either run the server from the project directory or use environment variables in your MCP config instead of a `.env` file.
 
 ### Security Note
 
